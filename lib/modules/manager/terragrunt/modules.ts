@@ -2,6 +2,7 @@ import { logger } from '../../../logger';
 import { regEx } from '../../../util/regex';
 import { GitTagsDatasource } from '../../datasource/git-tags';
 import { GithubTagsDatasource } from '../../datasource/github-tags';
+import { GitlabTagsDatasource } from '../../datasource/gitlab-tags';
 import { TerraformModuleDatasource } from '../../datasource/terraform-module';
 import type { PackageDependency } from '../types';
 import { extractTerragruntProvider } from './providers';
@@ -13,6 +14,11 @@ export const githubRefMatchRegex = regEx(
 export const gitTagsRefMatchRegex = regEx(
   /(?:git::)?(?<url>(?:http|https|ssh):\/\/(?:.*@)?(?<path>.*.*\/(?<project>.*\/.*)))\?ref=(?<tag>.*)$/
 );
+
+export const gitlabRefMatchRegex = regEx(
+  /gitlab\.com([/:])(?<project>[^/]+\/[a-z0-9-_.]+).*\?ref=(?<tag>.*)$/i
+);
+
 const hostnameMatchRegex = regEx(/^(?<hostname>([\w|\d]+\.)+[\w|\d]+)/);
 
 export function extractTerragruntModule(
@@ -35,16 +41,20 @@ export function analyseTerragruntModule(
   const source = dep.managerData!.source;
   const githubRefMatch = githubRefMatchRegex.exec(source ?? '');
   const gitTagsRefMatch = gitTagsRefMatchRegex.exec(source ?? '');
+  const gitlabTagsRefMatch = gitlabRefMatchRegex.exec(source ?? '');
 
   if (githubRefMatch?.groups) {
     dep.depType = 'github';
-    dep.packageName = githubRefMatch.groups.project.replace(
-      regEx(/\.git$/),
-      ''
-    );
+    dep.packageName = removeDotGit(githubRefMatch.groups.project);
     dep.depName = 'github.com/' + dep.packageName;
     dep.currentValue = githubRefMatch.groups.tag;
     dep.datasource = GithubTagsDatasource.id;
+  } else if (gitlabTagsRefMatch?.groups) {
+    dep.depType = 'gitlab';
+    dep.packageName = removeDotGit(gitlabTagsRefMatch.groups.project);
+    dep.depName = 'gitlab.com/' + dep.packageName;
+    dep.currentValue = gitlabTagsRefMatch.groups.tag;
+    dep.datasource = GitlabTagsDatasource.id;
   } else if (gitTagsRefMatch?.groups) {
     dep.depType = 'gitTags';
     if (gitTagsRefMatch.groups.path.includes('//')) {
@@ -75,4 +85,8 @@ export function analyseTerragruntModule(
     logger.debug({ dep }, 'terragrunt dep has no source');
     dep.skipReason = 'no-source';
   }
+}
+
+function removeDotGit(project: string): string {
+  return project.replace(regEx(/\.git$/), '');
 }
